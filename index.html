@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF to Text Converter (English & Odia)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Oriya&display=swap');
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #2c3e50;
+        }
+        
+        .upload-container {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: border-color 0.3s;
+        }
+        
+        .upload-container:hover, .upload-container.dragover {
+            border-color: #3498db;
+        }
+        
+        .upload-container p {
+            margin-bottom: 15px;
+            color: #7f8c8d;
+        }
+        
+        #file-input {
+            display: none;
+        }
+        
+        .btn {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            border: none;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        
+        .btn:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        
+        .actions {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            justify-content: center;
+        }
+        
+        .result-container {
+            display: none;
+            margin-top: 30px;
+        }
+        
+        #text-output {
+            width: 100%;
+            min-height: 300px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-family: 'Noto Sans Oriya', sans-serif;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+        }
+        
+        .loader {
+            display: none;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .status {
+            text-align: center;
+            margin: 10px 0;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .error {
+            color: #e74c3c;
+            text-align: center;
+            margin: 10px 0;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF to Text Converter</h1>
+        <p style="text-align: center; margin-bottom: 20px;">Supports both English and Odia languages</p>
+        
+        <div id="upload-container" class="upload-container">
+            <p>Drag & drop your PDF file here</p>
+            <p>OR</p>
+            <label for="file-input" class="btn">Choose PDF File</label>
+            <input type="file" id="file-input" accept=".pdf" />
+        </div>
+        
+        <div id="error" class="error"></div>
+        <div id="status" class="status"></div>
+        <div id="loader" class="loader"></div>
+        
+        <div id="result-container" class="result-container">
+            <div class="actions">
+                <button id="copy-btn" class="btn">Copy Text</button>
+                <button id="download-btn" class="btn">Download as TXT</button>
+            </div>
+            <div id="text-output"></div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize PDF.js worker
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        
+        // DOM elements
+        const fileInput = document.getElementById('file-input');
+        const uploadContainer = document.getElementById('upload-container');
+        const resultContainer = document.getElementById('result-container');
+        const textOutput = document.getElementById('text-output');
+        const copyBtn = document.getElementById('copy-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const loader = document.getElementById('loader');
+        const status = document.getElementById('status');
+        const error = document.getElementById('error');
+        
+        let extractedText = '';
+        let currentFileName = '';
+        
+        // Event listeners for drag and drop
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadContainer.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadContainer.addEventListener(eventName, highlight, false);
+        });
+        
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadContainer.addEventListener(eventName, unhighlight, false);
+        });
+        
+        function highlight() {
+            uploadContainer.classList.add('dragover');
+        }
+        
+        function unhighlight() {
+            uploadContainer.classList.remove('dragover');
+        }
+        
+        // Handle file drop
+        uploadContainer.addEventListener('drop', handleDrop, false);
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files.length > 0 && files[0].type === 'application/pdf') {
+                handleFile(files[0]);
+            } else {
+                showError('Please upload a valid PDF file');
+            }
+        }
+        
+        // Handle file input change
+        fileInput.addEventListener('change', function() {
+            if (this.files.length > 0) {
+                if (this.files[0].type === 'application/pdf') {
+                    handleFile(this.files[0]);
+                } else {
+                    showError('Please upload a valid PDF file');
+                }
+            }
+        });
+        
+        // Process the PDF file
+        function handleFile(file) {
+            resetUI();
+            showLoader('Loading PDF...');
+            currentFileName = file.name.replace('.pdf', '');
+            
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const typedArray = new Uint8Array(event.target.result);
+                extractTextFromPDF(typedArray);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+        
+        // Extract text from PDF using PDF.js
+        async function extractTextFromPDF(data) {
+            try {
+                const pdf = await pdfjsLib.getDocument({ data }).promise;
+                showStatus(`Processing PDF (0/${pdf.numPages} pages)`);
+                
+                extractedText = '';
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    showStatus(`Processing PDF (${i}/${pdf.numPages} pages)`);
+                    const page = await pdf.getPage(i);
+                    const textContent = await page.getTextContent();
+                    
+                    // Extract text items and preserve line breaks
+                    let lastY;
+                    let text = '';
+                    
+                    for (const item of textContent.items) {
+                        if (lastY !== item.transform[5] && lastY !== undefined) {
+                            text += '\n';
+                        }
+                        text += item.str;
+                        lastY = item.transform[5];
+                    }
+                    
+                    extractedText += text + '\n\n';
+                }
+                
+                displayResults();
+            } catch (err) {
+                showError('Failed to process PDF: ' + err.message);
+                hideLoader();
+            }
+        }
+        
+        // Display the extracted text
+        function displayResults() {
+            hideLoader();
+            hideStatus();
+            
+            if (extractedText.trim() === '') {
+                showError('No text could be extracted from this PDF. It might be a scanned document or image-based PDF.');
+                return;
+            }
+            
+            textOutput.textContent = extractedText;
+            resultContainer.style.display = 'block';
+        }
+        
+        // Copy text button
+        copyBtn.addEventListener('click', function() {
+            navigator.clipboard.writeText(extractedText)
+                .then(() => {
+                    const originalText = this.textContent;
+                    this.textContent = 'Copied!';
+                    setTimeout(() => {
+                        this.textContent = originalText;
+                    }, 2000);
+                })
+                .catch(err => {
+                    showError('Failed to copy: ' + err);
+                });
+        });
+        
+        // Download as text button
+        downloadBtn.addEventListener('click', function() {
+            const blob = new Blob([extractedText], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${currentFileName}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+        
+        // UI Helper functions
+        function resetUI() {
+            extractedText = '';
+            textOutput.textContent = '';
+            resultContainer.style.display = 'none';
+            hideError();
+            hideStatus();
+            hideLoader();
+        }
+        
+        function showLoader(message) {
+            loader.style.display = 'block';
+            if (message) {
+                showStatus(message);
+            }
+        }
+        
+        function hideLoader() {
+            loader.style.display = 'none';
+        }
+        
+        function showStatus(message) {
+            status.textContent = message;
+            status.style.display = 'block';
+        }
+        
+        function hideStatus() {
+            status.style.display = 'none';
+        }
+        
+        function showError(message) {
+            error.textContent = message;
+            error.style.display = 'block';
+        }
+        
+        function hideError() {
+            error.style.display = 'none';
+        }
+    </script>
+</body>
+</html>
